@@ -1,0 +1,85 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis_server
+    ports:
+      - "6379:6379"
+  web:
+    build: .
+    container_name: django_docker_db
+    command: python manage.py runserver 0.0.0.0:8000
+    # command: daphne -b 0.0.0.0 -p 8000 websocket.asgi:application
+
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+         condition: service_healthy
+         restart: true
+      redis:
+         condition: service_started
+         
+    env_file:
+      - .env
+
+  db:
+    image: postgres:17
+    container_name: postgres_db
+    volumes:
+      - postgres_db:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+
+volumes:
+  postgres_db:
+          
+  worker1:
+    build: .
+    container_name: celery_worker_1
+    command: celery -A truckflow worker -Q high --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - web
+  
+  worker2:
+      build: .
+      container_name: celery_worker_2
+      command: celery -A truckflow worker -Q medium --loglevel=info
+      volumes:
+        - .:/app
+      depends_on:
+        - redis
+        - web
+
+  worker3:
+    build: .
+    container_name: celery_worker_3
+    command: celery -A truckflow worker -Q low --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - web
+
+  beat:
+    build: .
+    container_name: celery_beat
+    command: celery -A truckflow beat --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - web
