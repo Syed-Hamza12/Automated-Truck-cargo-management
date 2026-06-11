@@ -41,16 +41,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     
-    "apps.users",
-    "apps.trucks",
-    "apps.drivers",
-    "apps.dispatch",
-    "apps.maintenance",
-    "apps.parts",
-    "apps.vendors",
-    "apps.downtime",
-    "apps.alerts",
-    "apps.reports",
+    "apps",
+    "channels",
 ]
 
 MIDDLEWARE = [
@@ -169,3 +161,8 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300,
     },
 }
+
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+
+AUTH_USER_MODEL = 'apps.User'
