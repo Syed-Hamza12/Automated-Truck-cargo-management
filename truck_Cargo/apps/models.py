@@ -218,7 +218,9 @@ class Load(models.Model):
     load_number      = models.CharField(max_length=100, unique=True)
     customer_name    = models.CharField(max_length=255, blank=True)
     origin           = models.CharField(max_length=255)
+    pickup_contact_phone = models.CharField(max_length=30, blank=True)
     destination      = models.CharField(max_length=255)
+    delivery_contact_phone = models.CharField(max_length=30, blank=True)
     pickup_date      = models.DateTimeField()
     delivery_date    = models.DateTimeField(null=True, blank=True)
     weight_lbs       = models.DecimalField(max_digits=10, decimal_places=2,
@@ -639,12 +641,13 @@ class Notification(models.Model):
         IN_APP = 'In-App', 'In-App'
         EMAIL  = 'Email',  'Email'
         SMS    = 'SMS',    'SMS'
+        LOAD_ASSIGNED = 'Load Assigned', 'Load Assigned to Driver'
 
     alert    = models.ForeignKey(Alert, on_delete=models.CASCADE,
                                  related_name='notifications')
     user     = models.ForeignKey(User, on_delete=models.CASCADE,
                                  related_name='notifications')
-    channel  = models.CharField(max_length=10, choices=Channel.choices,
+    channel  = models.CharField(max_length=20, choices=Channel.choices,
                                 default=Channel.IN_APP)
     is_read  = models.BooleanField(default=False)
     read_at  = models.DateTimeField(null=True, blank=True)
@@ -792,3 +795,45 @@ class MLPrediction(models.Model):
     def __str__(self):
         target = self.truck or self.driver
         return f'ML [{self.prediction_type}] for {target} @ {self.generated_at.date()}'
+
+# ─────────────────────────────────────────
+# Load Notifications (Driver WhatsApp + In-App)
+# ─────────────────────────────────────────
+class LoadNotification(models.Model):
+    class Channel(models.TextChoices):
+        WHATSAPP = 'WhatsApp', 'WhatsApp'
+        IN_APP   = 'In-App',   'In-App'
+        SMS      = 'SMS',      'SMS'
+
+    class Status(models.TextChoices):
+        PENDING   = 'Pending',   'Pending'
+        SENT      = 'Sent',      'Sent'
+        DELIVERED = 'Delivered', 'Delivered'
+        FAILED    = 'Failed',    'Failed'
+        READ      = 'Read',      'Read'
+
+    assignment      = models.ForeignKey(LoadAssignment, on_delete=models.CASCADE,
+                                        related_name='notifications')
+    driver          = models.ForeignKey(Driver, on_delete=models.CASCADE,
+                                        related_name='load_notifications')
+    channel         = models.CharField(max_length=20, choices=Channel.choices)
+    message         = models.TextField(help_text='Full message sent to driver')
+    whatsapp_number = models.CharField(max_length=20, blank=True,
+                                       help_text='Number used at time of sending')
+    status          = models.CharField(max_length=10, choices=Status.choices,
+                                       default=Status.PENDING)
+    sent_at         = models.DateTimeField(null=True, blank=True)
+    delivered_at    = models.DateTimeField(null=True, blank=True)
+    read_at         = models.DateTimeField(null=True, blank=True)
+    failure_reason  = models.TextField(blank=True,
+                                       help_text='Error message if delivery failed')
+    created_at      = models.DateTimeField(auto_now_add=True)
+    is_read  = models.BooleanField(default=False)
+
+
+    class Meta:
+        db_table = 'load_notifications'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Notify {self.driver} via {self.channel} — {self.status}'
