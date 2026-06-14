@@ -30,6 +30,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+
+    
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+]
+
 
 # Application definition
 
@@ -43,7 +54,31 @@ INSTALLED_APPS = [
     
     "apps",
     "channels",
+    'rest_framework',
+    'rest_framework_simplejwt',
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    # Short-lived token used for daily API requests
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15), 
+    
+    # Long-lived token used to generate new access tokens
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30), 
+    
+    # Automatically issues a brand new refresh token whenever used
+    'ROTATE_REFRESH_TOKENS': True, 
+    
+    # Deletes the old refresh token so it cannot be reused
+    'BLACKLIST_AFTER_ROTATION': True,
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -138,6 +173,7 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
 
 CELERY_BROKER_URL = 'redis://redis:6379/0'
 CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
