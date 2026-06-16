@@ -2,7 +2,11 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from datetime import timedelta
-
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from django.db import transaction
+import logging
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────
 # Users (extended)
@@ -219,6 +223,9 @@ class Load(models.Model):
     customer_name    = models.CharField(max_length=255, blank=True)
     origin           = models.CharField(max_length=255)
     pickup_contact_phone = models.CharField(max_length=30, blank=True)
+
+    destination_latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    destination_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     destination      = models.CharField(max_length=255)
     delivery_contact_phone = models.CharField(max_length=30, blank=True)
     pickup_date      = models.DateTimeField()
@@ -245,7 +252,8 @@ class Load(models.Model):
 
 # ─────────────────────────────────────────
 # Load Assignments
-# ─────────────────────────────────────────
+# ────────────────────────────────────────
+
 class LoadAssignment(models.Model):
     load       = models.ForeignKey(Load, on_delete=models.CASCADE,
                                    related_name='assignments')
@@ -264,6 +272,8 @@ class LoadAssignment(models.Model):
 
     def __str__(self):
         return f'{self.load} → {self.truck} / {self.driver}'
+    
+
 
 
 # ─────────────────────────────────────────
@@ -291,6 +301,9 @@ class Trip(models.Model):
                                           help_text='Auto-calculated from mileage delta')
     fuel_used_gal   = models.DecimalField(max_digits=7, decimal_places=3,
                                           null=True, blank=True)
+    assigned_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL,
+                                    related_name='dispatched_trips')
+    complete_approve = models.BooleanField(default=False)
     status          = models.CharField(max_length=15, choices=Status.choices,
                                        default=Status.PLANNED)
     delay_reason    = models.TextField(blank=True,
@@ -300,9 +313,75 @@ class Trip(models.Model):
         db_table = 'trips'
 
     def save(self, *args, **kwargs):
+        # 1. Calculate mileage delta
         if self.start_mileage and self.end_mileage:
             self.distance_miles = self.end_mileage - self.start_mileage
+        
+        is_new = self.pk is None
+        is_cancelled = False
+        is_completed = False
+        is_just_approved = False
+
+        # 2. Check if the status was changed to CANCELLED
+        if not is_new:
+            try:
+                original = Trip.objects.get(pk=self.pk)
+                
+                if original.status != self.Status.CANCELLED and self.status == self.Status.CANCELLED:
+                    is_cancelled = True
+                elif original.status != self.Status.COMPLETED and self.status == self.Status.COMPLETED:
+                    is_completed = True
+                
+                # Check if complete_approve changed from False to True
+                if not original.complete_approve and self.complete_approve:
+                    is_just_approved = True
+            except Trip.DoesNotExist:
+                pass
+
         super().save(*args, **kwargs)
+
+        if is_just_approved:
+            try:
+                lat = getattr(self.load, 'destination_latitude', None)
+                lng = getattr(self.load, 'destination_longitude', None)
+                destination = getattr(self.load, 'destination', None)
+                TripEvent.objects.create(
+                    trip=self,
+                    event_type=TripEvent.EventType.DELIVERY,
+                    latitude=lat, 
+                    longitude=lng,
+                    destination=destination,
+                    description="Trip completion approved by dispatcher.",
+                    recorded_by=self.assigned_by,  # Attributes event log to the assigning dispatcher
+                    recorded_at=timezone.now()
+                )
+            except Exception as e:
+                logger.error(f"Failed to create TripEvent log for trip {self.id}: {e}", exc_info=True)
+
+        # Helper function to broadcast message safely after DB commit
+        def send_notification(channel_group, event_type):
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                channel_group,
+                {
+                    "type": "send_notification",
+                    "value": {
+                        "event": event_type,  # Dynamically sets 'trip' or 'trip_cancelled'
+                        "trip_id": self.id
+                    }
+                }
+            )
+
+        # 3. Trigger events post-commit
+        if is_new:
+            driver_group = f"user_{self.driver.user.id}"
+            transaction.on_commit(lambda: send_notification(driver_group, "Added"))
+        elif is_cancelled:
+            driver_group = f"user_{self.driver.user.id}"
+            transaction.on_commit(lambda: send_notification(driver_group, "trip_cancelled"))
+        elif is_completed and self.assigned_by:
+            assigner_group = f"user_{self.assigned_by.id}"
+            transaction.on_commit(lambda: send_notification(assigner_group, "trip_completed"))
 
     def __str__(self):
         return f'Trip for {self.load} – {self.status}'
@@ -325,6 +404,7 @@ class TripEvent(models.Model):
     event_type  = models.CharField(max_length=15, choices=EventType.choices)
     latitude    = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude   = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    destination = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
     recorded_at = models.DateTimeField(default=timezone.now)
     recorded_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL,

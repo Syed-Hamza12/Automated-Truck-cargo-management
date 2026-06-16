@@ -11,13 +11,13 @@ import os
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from django.urls import path
-from apps.trucks import *
+from apps.trips.Driver_trip import *
 
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'truck_Cargo.settings')
 
 ws_patterns = [
-    path('test/', testconsumer.as_asgi()),  # ← also add .as_asgi()
+    path('test/', trip.as_asgi()),  # ← also add .as_asgi()
 ]
 
 application = ProtocolTypeRouter({
