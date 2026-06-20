@@ -149,6 +149,22 @@ class VendorInvoice(models.Model):
 # ─────────────────────────────────────────
 # Trucks
 # ─────────────────────────────────────────
+
+
+class fleet_department(models.Model):
+    location = models.CharField(max_length=100)
+    department_name = models.CharField(max_length=100)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fleet_departments')
+
+    def __str__(self):
+        return self.department_name
+class dispatch_department(models.Model):
+    location = models.CharField(max_length=100)
+    department_name = models.CharField(max_length=100)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dispatch_departments')
+    def __str__(self):
+        return self.department_name
+
 class Truck(models.Model):
     class Status(models.TextChoices):
         ACTIVE         = 'Active',         'Active'
@@ -156,8 +172,24 @@ class Truck(models.Model):
         OUT_OF_SERVICE = 'Out of Service', 'Out of Service'
         RETIRED        = 'Retired',        'Retired'
 
+    
     unit_number        = models.CharField(max_length=50, unique=True,
                                           help_text='Internal fleet identifier e.g. TRK-001')
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='trucks', 
+        null=True, 
+        blank=True
+    )
+    
+    fleet_department = models.ForeignKey(
+        fleet_department, 
+        on_delete=models.SET_NULL, 
+        related_name='trucks', 
+        null=True, 
+        blank=True
+    )
     make               = models.CharField(max_length=100)
     model              = models.CharField(max_length=100)
     year               = models.PositiveIntegerField()
@@ -676,6 +708,7 @@ class Alert(models.Model):
         PM_DUE_SOON        = 'PM Due Soon',         'PM Due Soon'
         PM_OVERDUE         = 'PM Overdue',           'PM Overdue'
         TRUCK_OUT_SERVICE  = 'Truck Out of Service', 'Truck Out of Service'
+        TRUCK_INSPECTION_REQUIRE = 'Truck Inspection Required', 'Truck Inspection Required'
         REPAIR_NOT_APPROVED = 'Repair Not Approved', 'Repair Not Approved (24h)'
         REPEATED_REPAIR    = 'Repeated Repair',      'Repeated Repair (3x in 90 days)'
         HIGH_MAINT_COST    = 'High Maintenance Cost','High Maintenance Cost'
@@ -739,6 +772,19 @@ class Notification(models.Model):
 
     def __str__(self):
         return f'Notification → {self.user} via {self.channel}'
+    
+
+class IssueReport(models.Model):
+    truck = models.ForeignKey(Truck, on_delete=models.CASCADE)
+
+    reported_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    description = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 # ─────────────────────────────────────────
@@ -876,44 +922,3 @@ class MLPrediction(models.Model):
         target = self.truck or self.driver
         return f'ML [{self.prediction_type}] for {target} @ {self.generated_at.date()}'
 
-# ─────────────────────────────────────────
-# Load Notifications (Driver WhatsApp + In-App)
-# ─────────────────────────────────────────
-class LoadNotification(models.Model):
-    class Channel(models.TextChoices):
-        WHATSAPP = 'WhatsApp', 'WhatsApp'
-        IN_APP   = 'In-App',   'In-App'
-        SMS      = 'SMS',      'SMS'
-
-    class Status(models.TextChoices):
-        PENDING   = 'Pending',   'Pending'
-        SENT      = 'Sent',      'Sent'
-        DELIVERED = 'Delivered', 'Delivered'
-        FAILED    = 'Failed',    'Failed'
-        READ      = 'Read',      'Read'
-
-    assignment      = models.ForeignKey(LoadAssignment, on_delete=models.CASCADE,
-                                        related_name='notifications')
-    driver          = models.ForeignKey(Driver, on_delete=models.CASCADE,
-                                        related_name='load_notifications')
-    channel         = models.CharField(max_length=20, choices=Channel.choices)
-    message         = models.TextField(help_text='Full message sent to driver')
-    whatsapp_number = models.CharField(max_length=20, blank=True,
-                                       help_text='Number used at time of sending')
-    status          = models.CharField(max_length=10, choices=Status.choices,
-                                       default=Status.PENDING)
-    sent_at         = models.DateTimeField(null=True, blank=True)
-    delivered_at    = models.DateTimeField(null=True, blank=True)
-    read_at         = models.DateTimeField(null=True, blank=True)
-    failure_reason  = models.TextField(blank=True,
-                                       help_text='Error message if delivery failed')
-    created_at      = models.DateTimeField(auto_now_add=True)
-    is_read  = models.BooleanField(default=False)
-
-
-    class Meta:
-        db_table = 'load_notifications'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f'Notify {self.driver} via {self.channel} — {self.status}'

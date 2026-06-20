@@ -11,7 +11,9 @@ from .models import (
     AuditLog,
     AIConversation, AIMessage, AIAction,
     MLPrediction,
-    LoadNotification
+    fleet_department, 
+    dispatch_department
+    
 )
 
 
@@ -76,7 +78,7 @@ class VendorInvoiceAdmin(admin.ModelAdmin):
 class TruckAdmin(admin.ModelAdmin):
     list_display  = ('unit_number', 'make', 'model', 'year', 'status',
                      'assigned_driver', 'current_mileage', 'dot_inspection_expiry')
-    list_filter   = ('status', 'make', 'year')
+    list_filter   = ('status', 'make', 'year', 'dispatcher_department', 'fleet_department')
     search_fields = ('unit_number', 'vin', 'license_plate', 'make', 'model')
     ordering      = ('unit_number',)
     readonly_fields = ('created_at', 'updated_at')
@@ -112,19 +114,19 @@ class LoadAdmin(admin.ModelAdmin):
     date_hierarchy = 'pickup_date'
     inlines       = [LoadAssignmentInline]
 
-class LoadNotificationInline(admin.TabularInline):
-    model       = LoadNotification
-    extra       = 0
-    fields      = ('channel', 'status', 'whatsapp_number', 'sent_at', 'delivered_at', 'read_at','is_read')
-    readonly_fields = ('sent_at', 'delivered_at', 'read_at', 'created_at' ,)
+# class LoadNotificationInline(admin.TabularInline):
+#     model       = LoadNotification
+#     extra       = 0
+#     fields      = ('channel', 'status', 'whatsapp_number', 'sent_at', 'delivered_at', 'read_at','is_read')
+#     readonly_fields = ('sent_at', 'delivered_at', 'read_at', 'created_at' ,)
 
-@admin.register(LoadNotification)
-class LoadNotificationAdmin(admin.ModelAdmin):
-    list_display  = ('driver', 'assignment', 'channel', 'status', 'whatsapp_number', 'sent_at' , 'read_at' , 'is_read')
-    list_filter   = ('channel', 'status')
-    search_fields = ('driver__user__first_name', 'driver__employee_id', 'whatsapp_number')
-    ordering      = ('-created_at',)
-    readonly_fields = ('sent_at', 'delivered_at', 'read_at', 'created_at' ,)
+# @admin.register(LoadNotification)
+# class LoadNotificationAdmin(admin.ModelAdmin):
+#     list_display  = ('driver', 'assignment', 'channel', 'status', 'whatsapp_number', 'sent_at' , 'read_at' , 'is_read')
+#     list_filter   = ('channel', 'status')
+#     search_fields = ('driver__user__first_name', 'driver__employee_id', 'whatsapp_number')
+#     ordering      = ('-created_at',)
+#     readonly_fields = ('sent_at', 'delivered_at', 'read_at', 'created_at' ,)
 
 @admin.register(LoadAssignment)
 class LoadAssignmentAdmin(admin.ModelAdmin):
@@ -132,7 +134,7 @@ class LoadAssignmentAdmin(admin.ModelAdmin):
     list_filter   = ('is_active',)
     search_fields = ('load__load_number', 'truck__unit_number', 'driver__employee_id')
     ordering      = ('-assigned_at',)
-    inlines = [LoadNotificationInline]
+    # inlines = [LoadNotificationInline]
 
 
 # ─────────────────────────────────────────
@@ -343,3 +345,12 @@ class MLPredictionAdmin(admin.ModelAdmin):
     readonly_fields = ('generated_at',)
 
 
+@admin.register(fleet_department)
+class FleetDepartmentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'department_name', 'location', 'user')
+    search_fields = ('department_name', 'location')
+
+@admin.register(dispatch_department)
+class DispatchDepartmentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'department_name', 'location', 'user')
+    search_fields = ('department_name', 'location')
