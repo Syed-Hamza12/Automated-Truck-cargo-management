@@ -35,6 +35,7 @@ def truck_issue_reported_Prompt(issue):
     - Truck ID: {issue.truck.id}
     - License Plate: {issue.truck.license_plate}
     - Issue Description: {issue.description}
-    - Reported At: {issue.reported_at}
+    - Reported By: {issue.reported_by}
+    - Reported At: {issue.created_at}
     Output:
     """

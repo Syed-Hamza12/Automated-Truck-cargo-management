@@ -4,13 +4,14 @@ import random
 # from rest_framework.views import APIView
 from django.http import JsonResponse
 import json
-from apps.models import Driver, Trip, User
+from apps.models import Driver, IssueReport, Trip, Truck, User
 from apps.utils.redis import redis_client
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from celery_tasks.whatsapp_worker import send_otp
+from celery_tasks.notification_worker import process_issue_report
 
 
 
@@ -30,7 +31,7 @@ def RequestOTPView(request):
         user = User.objects.filter(
             username=username,
             phone=phone,
-            role=User.Role.DRIVER
+            # role=User.Role.DRIVER
         ).first()
 
         if not user:
@@ -192,3 +193,34 @@ class TripInfo(APIView):
         }
 
         return JsonResponse({"trip_info": trip_data})
+
+
+class Driver_issue_report(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = json.loads(request.body)
+        license_plate = data.get("license_plate")
+        description = data.get("description")
+
+        truck = Truck.objects.filter(
+            license_plate=license_plate,
+        ).first()
+
+        if not truck:
+            return JsonResponse({"error": "Truck not found"}, status=404)
+
+        issue_report = IssueReport.objects.create(
+            truck=truck,
+            reported_by =request.user,
+            description=description
+        )
+
+        # Trigger the Celery task to process the issue report
+        process_issue_report.delay(
+            issue_report.id,
+            truck.dispatcher_department.user.id if truck.dispatcher_department else None,
+            truck.fleet_department.user.id if truck.fleet_department else None
+        )
+
+        return JsonResponse({"message": "Issue reported successfully."})
