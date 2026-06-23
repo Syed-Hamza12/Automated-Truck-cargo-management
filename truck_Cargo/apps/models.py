@@ -240,14 +240,14 @@ class TruckLocation(models.Model):
         return f'{self.truck} @ {self.recorded_at}'
 
 
+
+
 # ─────────────────────────────────────────
 # Loads
 # ─────────────────────────────────────────
 class Load(models.Model):
     class Status(models.TextChoices):
-        PENDING    = 'Pending',    'Pending'
-        ASSIGNED   = 'Assigned',   'Assigned'
-        IN_TRANSIT = 'In Transit', 'In Transit'
+        Active    = 'Active',    'Active'
         DELIVERED  = 'Delivered',  'Delivered'
         CANCELLED  = 'Cancelled',  'Cancelled'
 
@@ -269,17 +269,95 @@ class Load(models.Model):
                                            null=True, blank=True,
                                            help_text='Revenue for this load')
     status           = models.CharField(max_length=15, choices=Status.choices,
-                                        default=Status.PENDING)
+                                        default=Status.Active)
     created_by       = models.ForeignKey(User, null=True, on_delete=models.SET_NULL,
                                          related_name='created_loads')
     notes            = models.TextField(blank=True)
     created_at       = models.DateTimeField(auto_now_add=True)
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='load_department', 
+        null=True, 
+        blank=True
+    )
 
     class Meta:
         db_table = 'loads'
 
     def __str__(self):
         return f'Load {self.load_number} ({self.origin} → {self.destination})'
+
+# ------------------------------------------
+# Pakages
+# ------------------------------------------
+
+class Package(models.Model):
+
+    class Status(models.TextChoices):
+        RECEIVED = "Received"
+        LOADED = "Loaded"
+        IN_TRANSIT = "In Transit"
+        DELIVERED = "Delivered"
+
+    tracking_number = models.CharField(
+        max_length=100,
+        unique=True
+    )
+
+    sender_name = models.CharField(
+        max_length=255
+    )
+
+    sender_phone = models.CharField(
+        max_length=20
+    )
+
+    receiver_name = models.CharField(
+        max_length=255
+    )
+
+    receiver_phone = models.CharField(
+        max_length=20
+    )
+
+    origin = models.CharField(
+        max_length=255
+    )
+
+    destination = models.CharField(
+        max_length=255
+    )
+
+    weight_kg = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RECEIVED
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    load = models.ForeignKey(
+    Load,
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="packages"
+    )
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='packages_department', 
+        null=True, 
+        blank=True
+    )
 
 
 # ─────────────────────────────────────────
@@ -298,6 +376,13 @@ class LoadAssignment(models.Model):
     assigned_at = models.DateTimeField(default=timezone.now)
     is_active   = models.BooleanField(default=True)
     notes       = models.TextField(blank=True)
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='laod_assignment_department', 
+        null=True, 
+        blank=True
+    )
 
     class Meta:
         db_table = 'load_assignments'
@@ -313,13 +398,15 @@ class LoadAssignment(models.Model):
 # ─────────────────────────────────────────
 class Trip(models.Model):
     class Status(models.TextChoices):
-        PLANNED    = 'Planned',    'Planned'
-        IN_TRANSIT = 'In Transit', 'In Transit'
+        ACTIVE    = 'Active',    'Active'
         COMPLETED  = 'Completed',  'Completed'
         CANCELLED  = 'Cancelled',  'Cancelled'
 
-    load            = models.ForeignKey(Load, on_delete=models.CASCADE,
-                                        related_name='trips')
+    loads = models.ManyToManyField(
+    Load,
+    related_name="trips",
+    blank=True
+    )
     truck           = models.ForeignKey(Truck, on_delete=models.CASCADE,
                                         related_name='trips')
     driver          = models.ForeignKey(Driver, on_delete=models.CASCADE,
@@ -340,6 +427,13 @@ class Trip(models.Model):
                                        default=Status.PLANNED)
     delay_reason    = models.TextField(blank=True,
                                        help_text='If late, record reason for driver performance')
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='trip_department', 
+        null=True, 
+        blank=True
+    )
 
     class Meta:
         db_table = 'trips'
