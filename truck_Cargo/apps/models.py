@@ -42,6 +42,13 @@ class User(AbstractUser):
         db_table = 'users'
 
 
+class dispatch_department(models.Model):
+    location = models.CharField(max_length=100)
+    department_name = models.CharField(max_length=100)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dispatch_departments')
+    def __str__(self):
+        return self.department_name
+    
 # ─────────────────────────────────────────
 # Drivers
 # ─────────────────────────────────────────
@@ -78,6 +85,13 @@ class Driver(models.Model):
                                               help_text='AI-calculated performance score 0-100')
     total_miles_driven  = models.PositiveIntegerField(default=0)
     notes               = models.TextField(blank=True)
+    dispatcher_department = models.ForeignKey(
+        dispatch_department, 
+        on_delete=models.SET_NULL,  # Keeps the truck if a department is deleted
+        related_name='load_department', 
+        null=True, 
+        blank=True
+    )
 
     class Meta:
         db_table = 'drivers'
@@ -158,12 +172,7 @@ class fleet_department(models.Model):
 
     def __str__(self):
         return self.department_name
-class dispatch_department(models.Model):
-    location = models.CharField(max_length=100)
-    department_name = models.CharField(max_length=100)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dispatch_departments')
-    def __str__(self):
-        return self.department_name
+
 
 class Truck(models.Model):
     class Status(models.TextChoices):
@@ -190,6 +199,7 @@ class Truck(models.Model):
         null=True, 
         blank=True
     )
+    weight_carry       = models.DecimalField(max_digits=10, decimal_places=2,null=True, blank=True)
     make               = models.CharField(max_length=100)
     model              = models.CharField(max_length=100)
     year               = models.PositiveIntegerField()
@@ -499,10 +509,7 @@ class Trip(models.Model):
             )
 
         # 3. Trigger events post-commit
-        if is_new:
-            driver_group = f"user_{self.driver.user.id}"
-            transaction.on_commit(lambda: send_notification(driver_group, "Added"))
-        elif is_cancelled:
+        if is_cancelled:
             driver_group = f"user_{self.driver.user.id}"
             transaction.on_commit(lambda: send_notification(driver_group, "trip_cancelled"))
         elif is_completed and self.assigned_by:
