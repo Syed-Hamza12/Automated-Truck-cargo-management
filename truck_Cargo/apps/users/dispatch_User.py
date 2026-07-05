@@ -49,7 +49,8 @@ class Dispatcher_dashboard(APIView):
 
 
         dashboard_data = {
-            "department" : department.first(),
+            "department_id" : department.id,
+            "department_name" : department.name,
             "active_trips": active_trips,
             "available_trucks": available_trucks,
             "available_drivers": available_drivers,
@@ -75,21 +76,22 @@ class available_driver(APIView):
 
 class trips(APIView):
     permission_classes = [IsAuthenticated]
-    def get(self,request):
-        department =get_department (request.user)
-        trips = Trip.objects.select_related("load").filter(
-            dispatcher_department = department
-        ).values()
-        
-        data = {
-            "id" : trips.id,
-            "load__origin" : trips.load.origin,
-            "load__destination":trips.load.destination,
-            "status" : trips.status,
-            "truck" : trips.truck,
-        }
-
-        return JsonResponse(data , status =200)
+    def get(self, request):
+        department = get_department(request.user)
+        trips = Trip.objects.select_related("load", "truck").filter(
+            dispatcher_department=department
+        )
+        data = [
+            {
+                "id": t.id,
+                "load__origin": t.load.origin,
+                "load__destination": t.load.destination,
+                "status": t.status,
+                "truck": t.truck.id,
+            }
+            for t in trips
+        ]
+        return JsonResponse(data, safe=False, status=200)
     
 class TripDetailAPIView(APIView):
 
@@ -271,7 +273,7 @@ class TripEditDataAPIView(APIView):
             "available_drivers": list(drivers),
             "available_loads": list(loads),
             
-        })
+        },safe=False , status = 200)
     
 class UpdateTripAPIView(APIView):
 
@@ -294,8 +296,8 @@ class UpdateTripAPIView(APIView):
             )
 
         data = request.data
-        driver = Driver.objects.filter(id=data["driver_id"])
-        truck = Truck.objects.filter(id=data["truck_id"])
+        driver = Driver.objects.get(id=data["driver_id"])
+        truck = Truck.objects.get(id=data["truck_id"])
 
         if trip.driver != driver:
             driver_group = f"user_{trip.driver.user.id}"
@@ -320,7 +322,7 @@ class UpdateTripAPIView(APIView):
 
         return JsonResponse({
             "message": "Trip updated successfully"
-        })
+        }, status = 200)
     
 class NewLoadAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -344,7 +346,7 @@ class NewLoadAPIView(APIView):
 
         return JsonResponse({
             "available_packages": list(packages)
-        })
+        },safe=False , status = 200)
     
 
 class CreateLoadAPIView(APIView):
@@ -512,8 +514,8 @@ class SaveLoadAPIView(APIView):
             return JsonResponse({
                 "error":
                 "Some packages are already assigned",
-                "assigned pakages": list(conflict_packages.value("id","tracking_number","origin","destination"))
-            }, status=400)
+                "assigned pakages": list(conflict_packages.values("id","tracking_number","origin","destination"))
+            },safe=False , status=400)
 
         load.origin = data["origin"]
         load.destination = data["destination"]
@@ -551,7 +553,7 @@ class SaveLoadAPIView(APIView):
         return JsonResponse({
             "message":
             "Load updated successfully"
-        })
+        },safe=False , status = 200)
     
 
 class AddTripAPIView(APIView):
@@ -605,7 +607,7 @@ class AddTripAPIView(APIView):
             "drivers": list(drivers),
             "trucks": list(trucks),
             "loads": list(loads)
-        })
+        } ,safe=False , status = 200 )
     
 class CreateTripAPIView(APIView):
 
@@ -621,8 +623,8 @@ class CreateTripAPIView(APIView):
         data = request.data
 
         load_ids = data["load_ids"]
-        driver = Driver.objects.filter(id=data["driver_id"])
-        truck = Truck.objects.filter(id=data["truck_id"])
+        driver = Driver.objects.get(id=data["driver_id"])
+        truck = Truck.objects.get(id=data["truck_id"])
 
 
         if Trip.objects.filter(

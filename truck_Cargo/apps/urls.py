@@ -8,6 +8,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from apps.dispatch.AI_suggestion_engine import SuggestLoadsAPIView, SuggestTripsAPIView
 
 urlpatterns = [
 path('login-request-otp/',RequestOTPView,name="request_otp"),
@@ -34,6 +35,9 @@ path('/dispatcher/load/<int:id>/edit/', LoadEditAPIView.as_view(), name=""),
 path('/dispatcher/load/<int:id>/save/', SaveLoadAPIView.as_view(), name=""),
 path('/dispatcher/addtrip/', AddTripAPIView.as_view(), name=""),
 path('/dispatcher/createtrip/', CreateTripAPIView.as_view(), name=""),
+path('/dispatcher/SuggestLoadsAPIView', SuggestLoadsAPIView.as_view(), name=""),
+path('/dispatcher/SuggestTripsAPIView', SuggestTripsAPIView.as_view(), name=""),
+
 
 # Endpoint to login and get tokens
 path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
