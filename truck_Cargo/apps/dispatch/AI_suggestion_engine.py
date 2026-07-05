@@ -1,3 +1,5 @@
+# AI suggestion engine for dispatchers. This is a separate module from the main dispatch app
+
 from collections import deque
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
@@ -22,17 +24,12 @@ CITY_GRAPH = {
 
 
 def bfs_path(graph, start, end):
-    """
-    Plain BFS. Since every road has the same 'weight' (1 hop),
-    BFS automatically gives the shortest path. No Dijkstra needed.
-    Returns a list of cities, e.g. ["Karachi", "Hyderabad", "Sukkur"]
-    or None if there is no path.
-    """
+
     if start == end:
         return [start]
 
     visited = {start}
-    queue = deque([[start]])  
+    queue = deque([[start]])
 
     while queue:
         path = queue.popleft()
@@ -45,12 +42,10 @@ def bfs_path(graph, start, end):
                 visited.add(neighbor)
                 queue.append(path + [neighbor])
 
-    return None  
-
+    return None
 
 
 def _add_load_suggestion(suggestions, origin, destination, pkgs, weight):
-    """Small helper so we don't repeat this dict 3 times."""
     suggestions.append({
         "origin": origin,
         "destination": destination,
@@ -61,13 +56,7 @@ def _add_load_suggestion(suggestions, origin, destination, pkgs, weight):
 
 
 def suggest_loads(department):
-    """
-    Step 1: group packages that share the SAME origin and SAME destination.
-    Step 2: figure out avg truck capacity (weight_carry) across all active trucks.
-    Step 3: if a group's total weight is bigger than that average, SPLIT it
-             into smaller batches, each staying under the average — instead
-             of suggesting one giant load no truck can realistically take.
-    """
+
     packages = Package.objects.filter(
         load__isnull=True,
         dispatcher_department=department
@@ -108,55 +97,159 @@ def suggest_loads(department):
     return suggestions
 
 
-def suggest_trips(department):
-    """
-    For each truck (one at a time):
-      1. Look at every leftover load and find its BFS route.
-      2. Pick the load with the LONGEST route as the "main direction"
-         of this trip (in your example: Karachi -> Lahore).
-      3. Max allowed weight = 80% of truck.weight_carry.
-      4. Any other leftover load whose origin AND destination both sit
-         on that same main route gets added too (e.g. Karachi->Hyderabad,
-         Karachi->Multan are just waypoints on the Karachi->Lahore road).
-      5. Whatever got used in this trip is REMOVED from the pool so the
-         next truck only sees what's actually still left.
-    """
-    trucks = list(Truck.objects.filter(
-        status="Active", dispatcher_department=department
-    ))
-    drivers = list(Driver.objects.filter(
-        status="Active", dispatcher_department=department
-    ))
+def _on_route(load, path):
 
-    assigned_load_ids = set(
-        Trip.objects.filter(status=Trip.Status.ACTIVE)
-        .values_list("loads__id", flat=True)
+    if load.origin not in path or load.destination not in path:
+        return False
+    return path.index(load.origin) < path.index(load.destination)
+
+
+def _route_for_loads(loads):
+
+    routes = []
+    for load in loads:
+        path = bfs_path(CITY_GRAPH, load.origin, load.destination)
+        if path:
+            routes.append(path)
+
+    if not routes:
+        return None
+
+    return max(routes, key=len)
+
+
+def _get_busy_truck_ids():
+
+    return set(
+        Trip.objects.filter(status__in=[Trip.Status.ACTIVE, Trip.Status.PLANNED])
+        .exclude(truck__isnull=True)
+        .values_list("truck_id", flat=True)
+    )
+
+
+def _get_busy_driver_ids():
+
+    return set(
+        Trip.objects.filter(status__in=[Trip.Status.ACTIVE, Trip.Status.PLANNED])
+        .exclude(driver__isnull=True)
+        .values_list("driver_id", flat=True)
+    )
+
+
+def check_existing_planned_trips(department, available_loads):
+
+    planned_trips = Trip.objects.filter(
+        status=Trip.Status.PLANNED,
+        dispatcher_department=department
+    ).select_related("truck", "driver").prefetch_related("loads")
+
+    suggestions = []
+
+    for trip in planned_trips:
+        truck = trip.truck
+        if not truck or not available_loads:
+            continue
+
+        if truck.status != Truck.Status.ACTIVE or not truck.weight_carry:
+            continue
+
+        current_loads = list(trip.loads.all())
+        current_weight = sum(float(l.weight_lbs or 0) for l in current_loads)
+        max_weight = float(truck.weight_carry) * 0.8
+
+        remaining_capacity = max_weight - current_weight
+        if remaining_capacity <= 0:
+            continue
+
+        main_path = _route_for_loads(current_loads)
+        if not main_path:
+            continue
+
+        added_loads = []
+        for load in available_loads:
+            if not _on_route(load, main_path):
+                continue
+
+            load_weight = float(load.weight_lbs or 0)
+            if current_weight + load_weight <= max_weight:
+                added_loads.append(load)
+                current_weight += load_weight
+
+        if not added_loads:
+            continue
+
+        used_ids = {l.id for l in added_loads}
+        available_loads = [l for l in available_loads if l.id not in used_ids]
+
+        suggestions.append({
+            "trip_id": trip.id,
+            "truck_id": truck.id,
+            "truck_unit_number": truck.unit_number,
+            "driver_id": trip.driver.id if trip.driver else None,
+            "route": main_path,
+            "current_load_ids": [l.id for l in current_loads],
+            "suggested_additional_load_ids": [l.id for l in added_loads],
+            "total_weight_after": current_weight,
+            "max_allowed_weight_80pct": max_weight,
+        })
+
+    return suggestions, available_loads
+
+
+def suggest_trips(department):
+
+    busy_truck_ids = _get_busy_truck_ids()
+    busy_driver_ids = _get_busy_driver_ids()
+
+    trucks = list(
+        Truck.objects.filter(status="Active", dispatcher_department=department)
+        .exclude(id__in=busy_truck_ids)
+    )
+    drivers = list(
+        Driver.objects.filter(status="Active", dispatcher_department=department)
+        .exclude(id__in=busy_driver_ids)
+    )
+
+    committed_load_ids = set(
+        Trip.objects.filter(
+            status__in=[Trip.Status.ACTIVE, Trip.Status.PLANNED]
+        ).values_list("loads__id", flat=True)
     )
 
     available_loads = list(
         Load.objects.filter(
             dispatcher_department=department,
             status=Load.Status.Active
-        ).exclude(id__in=assigned_load_ids)
+        ).exclude(id__in=committed_load_ids)
     )
 
-    suggestions = []
-    driver_index = 0
+    existing_trip_suggestions, available_loads = check_existing_planned_trips(
+        department, available_loads
+    )
+
+    new_trip_suggestions = []
+  
+    available_drivers = list(drivers)
 
     for truck in trucks:
         if not truck.weight_carry or not available_loads:
-            continue  
+            continue
 
         max_weight = float(truck.weight_carry) * 0.8
 
         routed_loads = []
         for load in available_loads:
+  
+            load_weight = float(load.weight_lbs or 0)
+            if load_weight > max_weight:
+                continue
+
             path = bfs_path(CITY_GRAPH, load.origin, load.destination)
             if path:
                 routed_loads.append((load, path))
 
         if not routed_loads:
-            continue  
+            continue
         routed_loads.sort(key=lambda pair: len(pair[1]), reverse=True)
         base_load, main_path = routed_loads[0]
 
@@ -164,8 +257,7 @@ def suggest_trips(department):
         total_weight = float(base_load.weight_lbs or 0)
 
         for load, path in routed_loads[1:]:
-            on_same_route = load.origin in main_path and load.destination in main_path
-            if not on_same_route:
+            if not _on_route(load, main_path):
                 continue
 
             load_weight = float(load.weight_lbs or 0)
@@ -176,12 +268,9 @@ def suggest_trips(department):
         used_ids = {l.id for l in trip_loads}
         available_loads = [l for l in available_loads if l.id not in used_ids]
 
-        suggested_driver = None
-        if drivers:
-            suggested_driver = drivers[driver_index % len(drivers)]
-            driver_index += 1
+        suggested_driver = available_drivers.pop(0) if available_drivers else None
 
-        suggestions.append({
+        new_trip_suggestions.append({
             "truck_id": truck.id,
             "truck_unit_number": truck.unit_number,
             "route": main_path,
@@ -191,8 +280,10 @@ def suggest_trips(department):
             "suggested_driver_id": suggested_driver.id if suggested_driver else None,
         })
 
-    return suggestions
-
+    return {
+        "existing_trip_suggestions": existing_trip_suggestions,
+        "new_trip_suggestions": new_trip_suggestions,
+    }
 
 
 def get_department(user):
@@ -214,7 +305,8 @@ class SuggestTripsAPIView(APIView):
 
     def get(self, request):
         department = get_department(request.user)
-        suggestions = suggest_trips(department)
-        return JsonResponse({"suggested_trips": suggestions}, status=200)
-
-
+        result = suggest_trips(department)
+        return JsonResponse({
+            "existing_trip_suggestions": result["existing_trip_suggestions"],
+            "new_trip_suggestions": result["new_trip_suggestions"],
+        }, status=200)

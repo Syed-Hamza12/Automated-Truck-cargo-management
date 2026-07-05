@@ -59,6 +59,7 @@ class Driver(models.Model):
         CLASS_C = 'Class C', 'Class C CDL'
 
     class Status(models.TextChoices):
+        ON__THE_WAY = 'On the Way', 'On the Way'
         ACTIVE      = 'Active',      'Active'
         OFF_DUTY    = 'Off Duty',    'Off Duty'
         ON_LEAVE    = 'On Leave',    'On Leave'
@@ -176,6 +177,7 @@ class fleet_department(models.Model):
 
 class Truck(models.Model):
     class Status(models.TextChoices):
+        On_THE_WAY      = 'On the Way',      'On the Way'
         ACTIVE         = 'Active',         'Active'
         IN_MAINTENANCE = 'In Maintenance', 'In Maintenance'
         OUT_OF_SERVICE = 'Out of Service', 'Out of Service'
@@ -257,6 +259,7 @@ class TruckLocation(models.Model):
 # ─────────────────────────────────────────
 class Load(models.Model):
     class Status(models.TextChoices):
+        PLANNED = 'Planned', 'Planned'
         Active    = 'Active',    'Active'
         DELIVERED  = 'Delivered',  'Delivered'
         CANCELLED  = 'Cancelled',  'Cancelled'
@@ -408,6 +411,7 @@ class LoadAssignment(models.Model):
 # ─────────────────────────────────────────
 class Trip(models.Model):
     class Status(models.TextChoices):
+        PLANNED    = 'Planned',    'Planned'
         ACTIVE    = 'Active',    'Active'
         COMPLETED  = 'Completed',  'Completed'
         CANCELLED  = 'Cancelled',  'Cancelled'
